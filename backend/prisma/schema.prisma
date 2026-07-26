@@ -1,0 +1,368 @@
+// Prisma Schema for Contract AI SaaS
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-py"
+  interface = "asyncio"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================
+// USER MODELS
+// ===========================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash String
+  firstName    String?
+  lastName     String?
+  company      String?
+  phone        String?
+  isActive     Boolean   @default(true)
+  isVerified   Boolean   @default(false)
+  emailVerified Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  // Relations
+  contracts          Contract[]
+  apiKeys           ApiKey[]
+  subscription       Subscription?
+  paymentMethods     PaymentMethod[]
+  auditLogs         AuditLog[]
+  folders           Folder[]
+  tags              Tag[]
+  
+  @@index([email])
+  @@index([createdAt])
+}
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  key       String   @unique
+  provider  String   // deepseek, openai, etc.
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([provider])
+}
+
+// ===========================================
+// SUBSCRIPTION & BILLING MODELS
+// ===========================================
+
+model Subscription {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId          String    // free, pro
+  stripeCustomerId String?
+  stripeSubscriptionId String?
+  status          String    @default("active") // active, canceled, past_due, etc.
+  currentPeriodEnd DateTime?
+  trialEnd        DateTime?
+  contractsUsed   Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  
+  // Relations
+  payments        Payment[]
+  invoices        Invoice[]
+  
+  @@index([userId])
+  @@index([planId])
+  @@index([status])
+}
+
+model Plan {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  price       Float
+  currency    String   @default("USD")
+  interval    String   @default("month")
+  contractLimit Int
+  features    Json?    // List of features
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([name])
+}
+
+model PaymentMethod {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripePaymentMethodId String
+  type            String   // card, etc.
+  last4           String?
+  brand           String?
+  isDefault       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([userId])
+}
+
+model Payment {
+  id              String    @id @default(cuid())
+  subscriptionId  String
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  stripePaymentIntentId String
+  amount          Float
+  currency        String    @default("USD")
+  status          String    // succeeded, failed, pending
+  receiptUrl      String?
+  createdAt       DateTime  @default(now())
+  
+  @@index([subscriptionId])
+  @@index([status])
+}
+
+model Invoice {
+  id              String    @id @default(cuid())
+  subscriptionId  String
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  stripeInvoiceId String
+  amountDue       Float
+  currency        String    @default("USD")
+  status          String    // paid, open, void
+  dueDate         DateTime?
+  pdfUrl          String?
+  createdAt       DateTime  @default(now())
+  
+  @@index([subscriptionId])
+  @@index([status])
+}
+
+// ===========================================
+// CONTRACT & DOCUMENT MODELS
+// ===========================================
+
+model Contract {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folderId        String?
+  folder          Folder?   @relation(fields: [folderId], references: [id])
+  title           String
+  description     String?
+  fileName        String
+  filePath        String
+  fileSize        Int
+  fileType        String
+  status          String    @default("uploading") // uploading, processing, complete, failed
+  processingError String?
+  
+  // Analysis metadata
+  pageCount       Int?
+  wordCount       Int?
+  characterCount  Int?
+  
+  // Risk scoring
+  riskScore       Float?
+  riskLevel       String?   // low, medium, high, critical
+  
+  // Timestamps
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  processedAt     DateTime?
+  
+  // Relations
+  versions        ContractVersion[]
+  tags            ContractTag[]
+  analysis        ContractAnalysis?
+  auditLogs       AuditLog[]
+  
+  @@index([userId])
+  @@index([folderId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([riskScore])
+}
+
+model ContractVersion {
+  id          String   @id @default(cuid())
+  contractId  String
+  contract    Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  version     Int
+  filePath    String
+  fileSize    Int
+  createdAt   DateTime @default(now())
+  createdBy   String?
+  
+  @@unique([contractId, version])
+  @@index([contractId])
+}
+
+model Folder {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentId    String?
+  parent      Folder?  @relation("FolderToFolder", fields: [parentId], references: [id])
+  children    Folder[] @relation("FolderToFolder")
+  name        String
+  description String?
+  color       String?
+  order       Int      @default(0)
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  contracts   Contract[]
+  
+  @@index([userId])
+  @@index([parentId])
+}
+
+model Tag {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  color       String?
+  description String?
+  createdAt   DateTime @default(now())
+  
+  // Relations
+  contracts   ContractTag[]
+  
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model ContractTag {
+  id          String @id @default(cuid())
+  contractId  String
+  contract    Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  tagId       String
+  tag         Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  
+  @@unique([contractId, tagId])
+  @@index([contractId])
+  @@index([tagId])
+}
+
+// ===========================================
+// AI ANALYSIS MODELS
+// ===========================================
+
+model ContractAnalysis {
+  id          String   @id @default(cuid())
+  contractId  String   @unique
+  contract    Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  
+  // Overall summary
+  summary     Json?    // Plain-English summary
+  
+  // Risk analysis
+  riskFlags   Json?    // List of risk flags with severity and description
+  
+  // Clause extraction
+  extractedClauses Json? // Extracted clauses (payment terms, duration, etc.)
+  
+  // Missing clauses
+  missingClauses Json? // List of commonly missing clauses
+  
+  // Detailed analysis
+  detailedAnalysis Json? // Full detailed analysis
+  
+  // Metadata
+  processingTimeSeconds Float?
+  modelUsed            String?
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([contractId])
+}
+
+// ===========================================
+// AUDIT & ACTIVITY MODELS
+// ===========================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  contractId  String?
+  contract    Contract? @relation(fields: [contractId], references: [id])
+  action      String   // upload, analyze, delete, update, etc.
+  entityType  String   // user, contract, subscription, etc.
+  entityId    String?
+  oldValue    Json?
+  newValue    Json?
+  ipAddress   String?
+  userAgent   String?
+  status      String   @default("success") // success, failed
+  errorMessage String?
+  createdAt   DateTime @default(now())
+  
+  @@index([userId])
+  @@index([contractId])
+  @@index([action])
+  @@index([entityType])
+  @@index([createdAt])
+}
+
+// ===========================================
+// NOTIFICATION MODELS
+// ===========================================
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  message     String
+  type        String   // info, warning, error, success
+  isRead      Boolean  @default(false)
+  relatedId   String?  // Related entity ID
+  relatedType String?  // Related entity type
+  actionUrl   String?
+  createdAt   DateTime @default(now())
+  
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+// ===========================================
+// CELERY TASK MODELS
+// ===========================================
+
+model CeleryTask {
+  id          String   @id @default(cuid())
+  taskId      String   @unique
+  userId      String?
+  contractId  String?
+  taskType    String   // contract_analysis, etc.
+  status      String   @default("pending") // pending, started, success, failed
+  result      Json?
+  error       String?
+  retries     Int      @default(0)
+  createdAt   DateTime @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  
+  @@index([taskId])
+  @@index([userId])
+  @@index([contractId])
+  @@index([status])
+  @@index([taskType])
+}
