@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     tags_router,
     settings_router,
     dashboard_router,
+    stripe_router,
 )
 
 # Create API router
@@ -29,3 +30,4 @@ api_router.include_router(folders_router, prefix="/folders", tags=["Folders"])
 api_router.include_router(tags_router, prefix="/tags", tags=["Tags"])
 api_router.include_router(settings_router, prefix="/settings", tags=["Settings"])
 api_router.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
+api_router.include_router(stripe_router, prefix="/stripe", tags=["Stripe"])

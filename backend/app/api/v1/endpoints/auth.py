@@ -4,21 +4,65 @@ Authentication Endpoints
 
 import logging
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import HTTPBearer
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.config import settings
-from app.core.security import create_access_token, create_refresh_token, get_current_user
+from app.core.security import create_access_token, create_refresh_token
 from app.core.security.jwt import decode_token, TokenData
-from app.models.user import UserLogin, TokenResponse, RefreshTokenRequest, UserResponse
-from app.services.user import authenticate_user, get_user_by_id
+from app.core.security.auth import get_current_user, get_current_active_user
+from app.models.user import UserCreate, UserUpdate, UserResponse, UserLogin, TokenResponse, RefreshTokenRequest
+from app.services.user import (
+    create_user,
+    get_user_by_id,
+    get_user_by_email,
+    update_user,
+    delete_user,
+    authenticate_user,
+)
 
 logger = logging.getLogger(__name__)
 
 # Create router
 router = APIRouter(prefix="/auth")
+
+
+@router.post("/register", response_model=UserResponse)
+async def register_user(user_data: UserCreate):
+    """Register a new user"""
+    try:
+        # Check if user already exists
+        existing_user = await get_user_by_email(user_data.email)
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User with this email already exists",
+            )
+        
+        # Create user
+        user = await create_user(user_data)
+        
+        # Create free subscription for new user
+        from app.services.subscription import create_free_subscription
+        await create_free_subscription(user.id)
+        
+        logger.info(f"Registered new user: {user.id}")
+        
+        return user
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        logger.error(f"Registration failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Registration failed",
+        )
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -112,7 +156,7 @@ async def refresh_token(refresh_data: RefreshTokenRequest):
 
 
 @router.post("/logout")
-async def logout(current_user: Annotated[UserResponse, Depends(get_current_user)]):
+async def logout(current_user: Annotated[UserResponse, Depends(get_current_active_user)]):
     """Logout user (invalidate token)"""
     # In a real implementation, you would add the token to a blacklist
     # For JWT, logout is typically handled client-side by removing the token
@@ -123,6 +167,6 @@ async def logout(current_user: Annotated[UserResponse, Depends(get_current_user)
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_endpoint(current_user: Annotated[UserResponse, Depends(get_current_user)]):
+async def get_current_user_endpoint(current_user: Annotated[UserResponse, Depends(get_current_active_user)]):
     """Get current authenticated user"""
     return current_user

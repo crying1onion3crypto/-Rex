@@ -4,6 +4,7 @@ import { ThemeProvider } from '@/providers/theme-provider';
 import { AuthProvider } from '@/providers/auth-provider';
 import { QueryClientProvider } from '@/providers/query-provider';
 import { ToastProvider } from '@/providers/toast-provider';
+import { MainNav } from '@/components/layout/main-nav';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -45,7 +46,8 @@ export default function RootLayout({
           <AuthProvider>
             <QueryClientProvider>
               <ToastProvider>
-                {children}
+                <MainNav />
+                <main className="min-h-screen">{children}</main>
               </ToastProvider>
             </QueryClientProvider>
           </AuthProvider>

@@ -11,6 +11,7 @@ from app.api.v1.endpoints.folders import router as folders_router
 from app.api.v1.endpoints.tags import router as tags_router
 from app.api.v1.endpoints.settings import router as settings_router
 from app.api.v1.endpoints.dashboard import router as dashboard_router
+from app.api.v1.endpoints.stripe import router as stripe_router
 
 __all__ = [
     "auth_router",
@@ -22,4 +23,5 @@ __all__ = [
     "tags_router",
     "settings_router",
     "dashboard_router",
+    "stripe_router",
 ]
